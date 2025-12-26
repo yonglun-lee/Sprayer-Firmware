@@ -1,0 +1,20 @@
+{
+  "C_Cpp.intelliSenseEngine": "default",
+  "idf.espIdfPathWin": "C:\\Users\\yong-lun.lee\\esp\\v5.5.1\\esp-idf",
+  "idf.pythonInstallPath": "d:\\antigravity\\ESP-IDF\\ESP-IDF_Tools\\tools\\idf-python\\3.11.2\\python.exe",
+  "idf.openOcdConfigs": [
+    "board/esp32-wrover-kit-3.3v.cfg"
+  ],
+  "idf.toolsPathWin": "d:\\antigravity\\ESP-IDF\\ESP-IDF_Tools",
+  "idf.customExtraVars": {
+    "IDF_TARGET": "esp32"
+  },
+  "clangd.path": "d:\\antigravity\\ESP-IDF\\ESP-IDF_Tools\\tools\\esp-clang\\esp-19.1.2_20250312\\esp-clang\\bin\\clangd.exe",
+  "clangd.arguments": [
+    "--background-index",
+    "--query-driver=**",
+    "--compile-commands-dir=d:\\antigravity\\ESP-IDF\\ESP-IDF_Files\\Sprayer Firmware\\build"
+  ],
+  "idf.flashType": "UART",
+  "idf.portWin": "COM6"
+}
