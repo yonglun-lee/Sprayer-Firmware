@@ -1,6 +1,5 @@
 #include "rs485_comm.h"
 #include "hardware_pins.h"
-#include <driver/gpio.h>
 #include <driver/uart.h>
 #include <esp_log.h>
 #include <stdint.h>

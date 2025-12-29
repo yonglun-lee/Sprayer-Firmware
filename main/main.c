@@ -42,32 +42,33 @@
 
 static const char *TAG = "MAIN";
 
-void read_all_k24_info_task(void *pvParameters) {
+void read_k24_info_task(void *pvParameters) {
   uint32_t val;
   esp_err_t err;
+
+  char current_unit_str[8] = "";
 
   while (1) {
     ESP_LOGI(TAG, "--- K24 Sensor Full Information ---");
 
     struct {
-      uint16_t addr;
-      uint16_t cnt; // Number of registers (1 or 2)
-      const char *name;
+      uint16_t addr;    // address
+      uint16_t cnt;     // number of registers
+      const char *name; // attribute
     } registers[] = {
         {ADDR_ADDRESS, 1, "Slave Address"},
-        {ADDR_BAUDRATE, 2, "Baudrate"}, // Datasheet says Word*2
+        {ADDR_BAUDRATE, 2, "Baud Rate"},
         {ADDR_PROD_INFO, 2, "Product Info"},
         {ADDR_HW_INFO, 2, "Hardware Info"},
         {ADDR_SW_INFO, 2, "Software Info"},
         {ADDR_MEASURED_VAL, 2, "Measured Value"},
-        {ADDR_SHIFT_TOTAL, 2, "Shift Total"},
+        {ADDR_SHIFT_TOTAL, 2, "Cumulative Total"},
         {ADDR_GRAND_TOTAL, 2, "Grand Total"},
         {ADDR_AVG_FLOW, 2, "Average Flow"},
-        {ADDR_UNIT, 1, "Unit"},                     // Datasheet says Word
-        {ADDR_COEFFICIENT, 1, "Coefficient"},       // Datasheet says Word
-        {ADDR_CALIB_FACT, 1, "Calibration Factor"}, // Word
+        {ADDR_UNIT, 1, "Unit"},
+        {ADDR_COEFFICIENT, 1, "Coefficient"},
+        {ADDR_CALIB_FACT, 1, "Calibration Factor"},
         {ADDR_TIMESTAMP, 2, "Timestamp"},
-        // DETAILS_START might be bulk read, usually 4 words per record
         // {ADDR_DETAILS_START, 4, "Details Start"}
     };
 
@@ -86,29 +87,71 @@ void read_all_k24_info_task(void *pvParameters) {
                    (val & 0xFFFF) / 1000, (val & 0xFFFF) % 1000);
         } else if (registers[i].addr == ADDR_UNIT) {
           const char *u = "Unknown";
-          if (val == 0)
+          switch (val) {
+          case 0:
             u = "Error";
-          else if (val == 1)
+            break;
+          case 1:
             u = "QTS";
-          else if (val == 2)
+            break;
+          case 2:
             u = "PTS";
-          else if (val == 3)
+            break;
+          case 3:
             u = "Litre";
+            break;
+          case 4:
+            u = "GAL";
+            break;
+          case 5:
+            u = "PA";
+            break; // Datasheet says "Pressure", unusual for flow meter
+          case 6:
+            u = "m3";
+            break;
+          case 7:
+            u = "KG";
+            break;
+          default:
+            u = "Unknown";
+            break;
+          }
+          // Update current unit for next loop/display
+          strncpy(current_unit_str, u, sizeof(current_unit_str) - 1);
           ESP_LOGI(TAG, "[0x%04X] %-20s: %s (%lu)", registers[i].addr,
                    registers[i].name, u, val);
+
         } else if (registers[i].addr == ADDR_COEFFICIENT) {
           ESP_LOGI(TAG, "[0x%04X] %-20s: %.3f", registers[i].addr,
                    registers[i].name, (float)val / 1000.0f);
+
+        } else if (registers[i].addr == ADDR_MEASURED_VAL ||
+                   registers[i].addr == ADDR_SHIFT_TOTAL ||
+                   registers[i].addr == ADDR_GRAND_TOTAL) {
+
+          // Note: We use 'current_unit_str' here, but in the very first loop
+          // pass
+          ESP_LOGI(TAG, "[0x%04X] %-20s: %.3f %s", registers[i].addr,
+                   registers[i].name, (float)val / 1000.0f, current_unit_str);
+
+        } else if (registers[i].addr == ADDR_AVG_FLOW) {
+          // FIX: Average flow has 2 decimal places
+          ESP_LOGI(TAG, "[0x%04X] %-20s: %.2f /min", registers[i].addr,
+                   registers[i].name, (float)val / 100.0f);
+
         } else if (registers[i].addr == ADDR_TIMESTAMP) {
           time_t t = (time_t)val;
+          // Adjust for Timezone (User is in +08:00 based on context)
+          t += 8 * 3600;
           struct tm ts;
-          // Assuming val is UNIX timestamp
           localtime_r(&t, &ts);
           char buf[64];
           strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &ts);
           ESP_LOGI(TAG, "[0x%04X] %-20s: %s", registers[i].addr,
                    registers[i].name, buf);
+
         } else {
+          // Fallback for Address, Baudrate, etc.
           ESP_LOGI(TAG, "[0x%04X] %-20s: %lu (0x%08lX)", registers[i].addr,
                    registers[i].name, val, val);
         }
@@ -138,5 +181,5 @@ void app_main(void) {
   ESP_LOGI(TAG, "RS485 Initialized.");
 
   // Create the task to read all information
-  xTaskCreate(read_all_k24_info_task, "read_k24_info", 4096, NULL, 5, NULL);
+  xTaskCreate(read_k24_info_task, "read_k24_info", 4096, NULL, 5, NULL);
 }
