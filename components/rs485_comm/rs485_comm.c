@@ -48,14 +48,14 @@ static uint16_t calculate_crc16(uint8_t *buffer, uint16_t length) {
 }
 
 // Read Modbus Registers
-static esp_err_t read_k24_registers(uint16_t start_reg, uint32_t *raw_val) {
+static esp_err_t read_k24_registers(uint16_t start_reg, uint16_t reg_count, uint32_t *raw_val) {
   uint8_t cmd[8];
   cmd[0] = K24_SLAVE_ADDR;
   cmd[1] = READ_HOLDING_REGS;
   cmd[2] = (start_reg >> 8) & 0xFF;
   cmd[3] = start_reg & 0xFF;
   cmd[4] = 0x00;
-  cmd[5] = 0x02; // 2 registers = 32-bit
+  cmd[5] = reg_count; // Dynamic register count (1 or 2)
 
   uint16_t crc = calculate_crc16(cmd, 6);
   cmd[6] = crc & 0xFF;
@@ -68,30 +68,35 @@ static esp_err_t read_k24_registers(uint16_t start_reg, uint32_t *raw_val) {
     return ESP_FAIL;
   }
 
-  uint8_t data[9];
-  int length =
-      uart_read_bytes(UART_PORT_NUM, data, 9, pdMS_TO_TICKS(READ_TIMEOUT_MS));
+  // Calculate expected response length: 
+  // Addr(1) + Func(1) + BytesCount(1) + Data(reg_count * 2) + CRC(2)
+  int expected_len = 5 + (reg_count * 2);
+  
+  uint8_t data[16]; // Increased buffer size just in case
+  int length = uart_read_bytes(UART_PORT_NUM, data, expected_len, pdMS_TO_TICKS(READ_TIMEOUT_MS));
 
-  if (length < 9) {
-    ESP_LOGW(RS485_TAG, "Rx Timeout/Short: %d", length);
+  if (length < expected_len) {
+    ESP_LOGW(RS485_TAG, "Rx Timeout/Short: %d (Exp: %d)", length, expected_len);
     return ESP_ERR_TIMEOUT;
   }
 
-  uint16_t recv_crc = data[7] | (data[8] << 8);
-  if (calculate_crc16(data, 7) != recv_crc) {
+  // Check CRC
+  uint16_t recv_crc = data[length - 2] | (data[length - 1] << 8); // CRC is always at the end
+  if (calculate_crc16(data, length - 2) != recv_crc) {
     ESP_LOGE(RS485_TAG, "CRC Fail");
     return ESP_FAIL;
   }
 
-  if (data[0] != K24_SLAVE_ADDR || data[1] != READ_HOLDING_REGS) {
-    ESP_LOGE(RS485_TAG, "Invalid Response: Addr=0x%02X, Func=0x%02X", data[0],
-             data[1]);
-    return ESP_FAIL;
+  // Parse Data based on length
+  if (reg_count == 2) {
+      // 32-bit value (2 registers)
+      uint32_t high_word = (data[3] << 8) | data[4];
+      uint32_t low_word = (data[5] << 8) | data[6];
+      *raw_val = (high_word << 16) | low_word; 
+  } else {
+      // 16-bit value (1 register)
+      *raw_val = (data[3] << 8) | data[4];
   }
-
-  uint32_t high_word = (data[3] << 8) | data[4];
-  uint32_t low_word = (data[5] << 8) | data[6];
-  *raw_val = (high_word << 16) | low_word;
 
   return ESP_OK;
 }
@@ -134,14 +139,14 @@ esp_err_t rs485_read_k24_sensor(k24_sensor_data_t *data) {
   // 1. Read Raw Values from Sensor
 
   // Flow Rate (Register 0x0017)
-  err = read_k24_registers(REG_FLOW_RATE_START, &raw_flow_int);
+  err = read_k24_registers(REG_FLOW_RATE_START, 2, &raw_flow_int);
   if (err != ESP_OK) {
     ESP_LOGW(RS485_TAG, "Read Flow Failed: %s", esp_err_to_name(err));
     return err;
   }
 
   // Total Volume (Register 0x000D)
-  err = read_k24_registers(REG_TOTAL_VOLUME_START, &raw_total_int);
+  err = read_k24_registers(REG_TOTAL_VOLUME_START, 2, &raw_total_int);
   if (err != ESP_OK) {
     ESP_LOGW(RS485_TAG, "Read Total Failed: %s", esp_err_to_name(err));
     return err;
@@ -163,6 +168,6 @@ esp_err_t rs485_read_k24_sensor(k24_sensor_data_t *data) {
   return ESP_OK;
 }
 
-esp_err_t rs485_read_raw_address(uint16_t reg_addr, uint32_t *val) {
-  return read_k24_registers(reg_addr, val);
+esp_err_t rs485_read_raw_address(uint16_t reg_addr, uint16_t reg_count, uint32_t *val) {
+  return read_k24_registers(reg_addr, reg_count, val);
 }

@@ -61,7 +61,7 @@ esp_err_t rs485_read_k24_sensor(k24_sensor_data_t *data);
  * @param[out] val Pointer to store the 32-bit value
  * @return esp_err_t ESP_OK on success
  */
-esp_err_t rs485_read_raw_address(uint16_t reg_addr, uint32_t *val);
+esp_err_t rs485_read_raw_address(uint16_t reg_addr, uint16_t reg_count, uint32_t *val);
 
 #ifdef __cplusplus
 }

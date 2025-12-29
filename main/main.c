@@ -2,6 +2,7 @@
 #include "freertos/FreeRTOS.h" // IWYU pragma: keep
 #include "freertos/task.h"
 #include "rs485_comm.h"
+#include <time.h>
 
 // static const char *TAG = "MAIN";
 
@@ -48,35 +49,73 @@ void read_all_k24_info_task(void *pvParameters) {
   while (1) {
     ESP_LOGI(TAG, "--- K24 Sensor Full Information ---");
 
-    // List of addresses to read
     struct {
       uint16_t addr;
+      uint16_t cnt; // Number of registers (1 or 2)
       const char *name;
-    } registers[] = {{ADDR_ADDRESS, "Slave Address"},
-                     {ADDR_BAUDRATE, "Baudrate"},
-                     {ADDR_PROD_INFO, "Product Info"},
-                     {ADDR_HW_INFO, "Hardware Info"},
-                     {ADDR_SW_INFO, "Software Info"},
-                     {ADDR_MEASURED_VAL, "Measured Value"},
-                     {ADDR_SHIFT_TOTAL, "Shift Total"},
-                     {ADDR_GRAND_TOTAL, "Grand Total"},
-                     {ADDR_AVG_FLOW, "Average Flow"},
-                     {ADDR_UNIT, "Unit"},
-                     {ADDR_COEFFICIENT, "Coefficient"},
-                     {ADDR_CALIB_FACT, "Calibration Factor"},
-                     {ADDR_TIMESTAMP, "Timestamp"},
-                     {ADDR_DETAILS_START, "Details Start"}};
+    } registers[] = {
+        {ADDR_ADDRESS, 1, "Slave Address"},
+        {ADDR_BAUDRATE, 2, "Baudrate"}, // Datasheet says Word*2
+        {ADDR_PROD_INFO, 2, "Product Info"},
+        {ADDR_HW_INFO, 2, "Hardware Info"},
+        {ADDR_SW_INFO, 2, "Software Info"},
+        {ADDR_MEASURED_VAL, 2, "Measured Value"},
+        {ADDR_SHIFT_TOTAL, 2, "Shift Total"},
+        {ADDR_GRAND_TOTAL, 2, "Grand Total"},
+        {ADDR_AVG_FLOW, 2, "Average Flow"},
+        {ADDR_UNIT, 1, "Unit"},                     // Datasheet says Word
+        {ADDR_COEFFICIENT, 1, "Coefficient"},       // Datasheet says Word
+        {ADDR_CALIB_FACT, 1, "Calibration Factor"}, // Word
+        {ADDR_TIMESTAMP, 2, "Timestamp"},
+        // DETAILS_START might be bulk read, usually 4 words per record
+        // {ADDR_DETAILS_START, 4, "Details Start"}
+    };
 
     for (int i = 0; i < sizeof(registers) / sizeof(registers[0]); i++) {
-      err = rs485_read_raw_address(registers[i].addr, &val);
+      // Pass the specific count for this register
+      err = rs485_read_raw_address(registers[i].addr, registers[i].cnt, &val);
+
       if (err == ESP_OK) {
-        ESP_LOGI(TAG, "[0x%04X] %-20s: %lu (0x%08lX)", registers[i].addr,
-                 registers[i].name, val, val);
+        if (registers[i].addr == ADDR_PROD_INFO) {
+          ESP_LOGI(TAG, "[0x%04X] %-20s: K24-%04lX-%04lX", registers[i].addr,
+                   registers[i].name, (val >> 16) & 0xFFFF, val & 0xFFFF);
+        } else if (registers[i].addr == ADDR_HW_INFO ||
+                   registers[i].addr == ADDR_SW_INFO) {
+          ESP_LOGI(TAG, "[0x%04X] %-20s: K24-%04lX-V%lu.%03lu",
+                   registers[i].addr, registers[i].name, (val >> 16) & 0xFFFF,
+                   (val & 0xFFFF) / 1000, (val & 0xFFFF) % 1000);
+        } else if (registers[i].addr == ADDR_UNIT) {
+          const char *u = "Unknown";
+          if (val == 0)
+            u = "Error";
+          else if (val == 1)
+            u = "QTS";
+          else if (val == 2)
+            u = "PTS";
+          else if (val == 3)
+            u = "Litre";
+          ESP_LOGI(TAG, "[0x%04X] %-20s: %s (%lu)", registers[i].addr,
+                   registers[i].name, u, val);
+        } else if (registers[i].addr == ADDR_COEFFICIENT) {
+          ESP_LOGI(TAG, "[0x%04X] %-20s: %.3f", registers[i].addr,
+                   registers[i].name, (float)val / 1000.0f);
+        } else if (registers[i].addr == ADDR_TIMESTAMP) {
+          time_t t = (time_t)val;
+          struct tm ts;
+          // Assuming val is UNIX timestamp
+          localtime_r(&t, &ts);
+          char buf[64];
+          strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &ts);
+          ESP_LOGI(TAG, "[0x%04X] %-20s: %s", registers[i].addr,
+                   registers[i].name, buf);
+        } else {
+          ESP_LOGI(TAG, "[0x%04X] %-20s: %lu (0x%08lX)", registers[i].addr,
+                   registers[i].name, val, val);
+        }
       } else {
         ESP_LOGW(TAG, "[0x%04X] %-20s: Read Failed (%s)", registers[i].addr,
                  registers[i].name, esp_err_to_name(err));
       }
-      // Small delay between reads to not saturate UART
       vTaskDelay(pdMS_TO_TICKS(50));
     }
 
@@ -101,4 +140,3 @@ void app_main(void) {
   // Create the task to read all information
   xTaskCreate(read_all_k24_info_task, "read_k24_info", 4096, NULL, 5, NULL);
 }
-
