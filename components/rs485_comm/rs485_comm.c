@@ -6,7 +6,6 @@
 #include <stdint.h>
 #include <string.h>
 
-
 // Forward Declaration
 static uint16_t calculate_crc16(uint8_t *buffer, uint16_t length);
 
@@ -21,8 +20,8 @@ static const char *RS485_TAG = "RS485_K24";
 #define READ_HOLDING_REGS 0x03
 
 // Register Addresses
-#define REG_TOTAL_VOLUME_START 0x000D // Total Accumulation
-#define REG_FLOW_RATE_START 0x0017    // Instantaneous Flow Rate
+#define REG_TOTAL_VOLUME_START ADDR_GRAND_TOTAL
+#define REG_FLOW_RATE_START 0x0017 // Instantaneous Flow Rate
 
 // UART Settings
 #define BUF_SIZE 256
@@ -162,4 +161,8 @@ esp_err_t rs485_read_k24_sensor(k24_sensor_data_t *data) {
            data->total_volume);
 
   return ESP_OK;
+}
+
+esp_err_t rs485_read_raw_address(uint16_t reg_addr, uint32_t *val) {
+  return read_k24_registers(reg_addr, val);
 }
